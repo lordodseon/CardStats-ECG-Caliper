@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CardStats ECG Caliper</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --ink:#0e1217; --panel:#151b23; --panel2:#1c242e; --line:#2b3542;
+    --text:#e7edf3; --muted:#8a97a5; --paper:#fffdf8;
+    --grid:#f2c2bb; --gridbold:#e79286; --trace:#14181d;
+    --timec:#08a6c9; --voltc:#f6a41f; --good:#37b24d; --bad:#e5484d;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);font-size:13px;overflow:hidden}
+  .app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+  .topbar{display:flex;align-items:center;gap:12px;padding:9px 16px;background:linear-gradient(180deg,#182029,#121820);border-bottom:1px solid var(--line)}
+  .brand b{font-weight:700;letter-spacing:.02em}
+  .brand .beat{color:var(--timec)}
+  .brand span{color:var(--muted);font-size:11px;font-family:var(--mono);margin-left:7px}
+  .ghost.alt{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;font-size:12.5px;
+    border-style:dashed;color:#6f7d8b}
+  .ghost.alt:hover{color:var(--text);border-color:var(--muted);border-style:dashed}
+  .ghost.alt i{font-style:normal;font-size:9px;letter-spacing:.07em;text-transform:uppercase;
+    color:#55616e;border:1px solid #2b3542;border-radius:4px;padding:1px 4px}
+  .sig{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:#4a5663;letter-spacing:.10em;
+    user-select:none;padding-left:14px}
+  .pt{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+  .pt b{color:var(--text)}
+  .filebtn{display:inline-flex;align-items:center;gap:7px;background:var(--timec);color:#02222b;font-weight:600;border:none;padding:7px 13px;border-radius:7px;cursor:pointer;font-size:12.5px}
+  .filebtn:hover{filter:brightness(1.08)}
+  .ghost{background:transparent;color:var(--muted);border:1px solid var(--line);padding:6px 11px;border-radius:7px;cursor:pointer;font-size:12px}
+  .ghost:hover{color:var(--text);border-color:var(--muted)}
+  .main{display:grid;grid-template-columns:1fr 420px;min-height:0}
+  .left{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line)}
+  .leadbar{display:flex;gap:5px;flex-wrap:wrap;padding:9px 12px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .leadbtn{font-family:var(--mono);font-size:12px;font-weight:600;padding:5px 10px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);cursor:pointer;min-width:40px}
+  .leadbtn:hover{color:var(--text);border-color:var(--muted)}
+  .leadbtn.on{background:var(--timec);color:#02222b;border-color:var(--timec)}
+  .leadbtn.rhythm{border-style:dashed}
+  .leadbtn .dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--good);margin-left:5px;vertical-align:middle}
+  .viewport{flex:1;position:relative;background:#0b0f14;min-height:0;overflow:hidden}
+  .scroller{position:absolute;inset:0;overflow-x:auto;overflow-y:hidden}
+  #ecg{display:block;background:var(--paper);cursor:crosshair;touch-action:none}
+  .vp-hint{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;
+    color:#5b6672;font-size:13px;background:rgba(255,253,248,.88);padding:10px 18px;border-radius:10px;
+    border:1px solid #ecc9c2}
+  .vp-hint b{color:#26303a}
+  .readout{display:flex;align-items:center;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-family:var(--mono)}
+  .ro{padding:7px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+  .ro .k{font-size:9.5px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  .ro .v{font-size:15px;font-weight:600}
+  .ro.time .v{color:var(--timec)} .ro.volt .v{color:var(--voltc)}
+  .ro-tools{margin-left:auto;display:flex;align-items:center;gap:14px;padding:0 14px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{background:#0e141b;border:none;color:var(--muted);padding:6px 11px;font-size:11.5px;cursor:pointer;font-family:var(--sans)}
+  .seg button.on{background:var(--timec);color:#02222b;font-weight:600}
+  .seg button.on.v{background:var(--voltc);color:#2a1c00}
+  .zoom{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:11px}
+  .zoom input{width:100px}
+  .chk{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:11.5px;cursor:pointer;user-select:none}
+  .recbar{display:flex;align-items:center;gap:7px;padding:10px 12px;background:var(--panel2);flex-wrap:wrap}
+  .recbar .lbl{font-size:11px;color:var(--muted)}
+  .rec{font-family:var(--mono);font-weight:600;font-size:12.5px;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:#0e141b;color:var(--text);cursor:pointer}
+  .rec:hover{border-color:var(--timec)}
+  .rec.on{background:var(--timec);color:#02222b;border-color:var(--timec)}
+  .rec i{font-style:normal;opacity:.55;font-size:9.5px;margin-left:4px;letter-spacing:.04em}
+  .rec.on i{opacity:.75}
+  .right{display:flex;flex-direction:column;min-height:0;background:var(--panel)}
+  .rhead{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+  .rhead b{font-size:12px;letter-spacing:.03em}
+  .rhead .mini{font-size:10.5px;color:var(--muted);font-family:var(--mono)}
+  .tablewrap{flex:1;overflow:auto}
+  table{border-collapse:collapse;font-family:var(--mono);font-size:11px;width:100%}
+  th,td{border:1px solid var(--line);padding:4px 5px;text-align:center;white-space:nowrap}
+  thead th{position:sticky;top:0;background:#111820;color:var(--muted);font-weight:600;font-size:9.5px;z-index:2}
+  thead th.vh{color:var(--voltc)} thead th.th{color:var(--timec)}
+  tbody th{background:#111820;color:var(--text);text-align:left;position:sticky;left:0;font-weight:600;z-index:1}
+  tbody tr.sel th,tbody tr.sel td{background:#17222b}
+  td.has{color:var(--timec)} td.has.v{color:var(--voltc)}
+  td:hover{background:#1b2530}
+  tbody tr.rhythm th{color:var(--muted);font-style:italic}
+  .rfoot{padding:11px 12px;border-top:1px solid var(--line);display:flex;gap:8px}
+  .copy{flex:1;background:var(--good);color:#04240f;font-weight:700;border:none;padding:10px;border-radius:8px;cursor:pointer;font-size:13px}
+  .copy:hover{filter:brightness(1.08)}
+  .copy.done{background:var(--timec);color:#02222b}
+  .clear{background:transparent;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:0 12px;cursor:pointer}
+  .clear:hover{color:var(--bad);border-color:var(--bad)}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#0c1218;border:1px solid var(--line);color:var(--text);padding:9px 16px;border-radius:9px;font-size:12.5px;opacity:0;transition:.25s;pointer-events:none;font-family:var(--mono);max-width:70vw;text-align:center}
+  .toast.show{opacity:1}
+
+  .rightgrp{margin-left:auto;display:flex;align-items:center;gap:5px}
+  .navbtn{min-width:30px;padding:5px 8px;font-size:12px}
+  .beatlbl{font-family:var(--mono);font-size:11.5px;color:var(--timec);min-width:42px;text-align:center;
+    background:#101b22;border:1px solid #1d5f70;border-radius:6px;padding:5px 4px}
+  .axisbtn{background:#101b22;border-color:#1d5f70;color:var(--timec)}
+  .axisbtn:hover{border-color:var(--timec);color:#7fe3f7}
+  .axisbtn.on{background:var(--timec);color:#02222b;border-color:var(--timec)}
+  .axispanel{position:absolute;right:14px;top:14px;width:334px;background:#111820f2;border:1px solid var(--line);
+    border-radius:12px;padding:14px 15px 13px;z-index:20;box-shadow:0 18px 50px rgba(0,0,0,.55);backdrop-filter:blur(3px)}
+  .axispanel h4{margin:0 0 10px;font-size:11.5px;letter-spacing:.06em;color:var(--muted);font-weight:600;
+    display:flex;justify-content:space-between;align-items:center}
+  .axispanel .x{cursor:pointer;color:var(--muted);font-size:15px;line-height:1}
+  .axispanel .x:hover{color:var(--bad)}
+  .axrow{display:flex;align-items:baseline;justify-content:space-between;padding:5px 0;border-bottom:1px solid #1e2732;font-family:var(--mono)}
+  .axrow:last-of-type{border-bottom:none}
+  .axrow .lab{font-size:11.5px;color:var(--muted)}
+  .axrow .val{font-size:17px;font-weight:700}
+  .axrow .ref{font-size:10px;color:#5d6b7a;margin-left:6px}
+  .axcls{margin-top:9px;padding:7px 9px;border-radius:7px;font-size:11.5px;text-align:center;font-weight:600}
+  .axcls.ok{background:#123321;color:#6ee39a} .axcls.warn{background:#33240f;color:#f0b455}
+  .axnote{margin-top:9px;font-size:10px;color:#5d6b7a;line-height:1.45}
+  .axadd{margin-top:10px;width:100%;background:transparent;border:1px solid var(--line);color:var(--muted);
+    border-radius:7px;padding:7px;font-size:11.5px;cursor:pointer}
+  .axadd:hover{color:var(--text);border-color:var(--muted)}
+  input[type=file]{display:none}
+  ::-webkit-scrollbar{height:10px;width:10px}
+  ::-webkit-scrollbar-thumb{background:#2b3542;border-radius:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand"><b>CardStats<span class="beat">◟◞</span>ECG Caliper</b></div>
+    <label class="filebtn">＋ PDF Yükle<input type="file" id="file" accept="application/pdf"></label>
+    <button class="ghost alt" id="upng">＋ PNG Yükle<i>yakında</i></button>
+    <button class="ghost alt" id="ujpg">＋ JPEG Yükle<i>yakında</i></button>
+    <div class="sig">CS 2026</div>
+    
+    
+  </div>
+  <div class="main">
+    <div class="left">
+      <div class="leadbar" id="leadbar"></div>
+      <div class="viewport">
+        <div class="scroller" id="scroller"><canvas id="ecg" width="1000" height="340"></canvas></div>
+        <div id="axiswrap"></div>
+        <div class="vp-hint" id="hint">Başlamak için bir <b>GE MUSE PDF</b>'i yükleyin</div>
+      </div>
+      <div class="readout">
+        <div class="ro time"><span class="k">Δt</span><span class="v" id="ro-dt">—</span></div>
+        <div class="ro time"><span class="k">HR eşdeğeri</span><span class="v" id="ro-hr">—</span></div>
+        <div class="ro volt"><span class="k">ΔmV</span><span class="v" id="ro-dv">—</span></div>
+        <div class="ro"><span class="k">imleç</span><span class="v" id="ro-cur" style="font-size:12px;color:var(--muted)">—</span></div>
+        <div class="ro-tools">
+          <div class="seg" id="segmode">
+            <button data-mode="t" class="on">Zaman ⇕</button>
+            <button data-mode="v">Voltaj ⇔</button>
+          </div>
+          <label class="chk"><input type="checkbox" id="autoseed" checked> Oto yerleştir</label>
+          <div class="zoom">Yakınlaştır<input type="range" id="zoom" min="2" max="16" step="0.5" value="5"></div>
+        </div>
+      </div>
+      <div class="recbar">
+        <span class="lbl">Ölçüp kaydet →</span>
+        <button class="rec" data-m="HR">HR<i>bpm</i></button>
+        <button class="rec" data-m="P">P<i>ms+mV</i></button>
+        <button class="rec" data-m="PR">PR<i>ms</i></button>
+        <button class="rec" data-m="QRS">QRS<i>ms+mV</i></button>
+        <button class="rec" data-m="ST">ST<i>ms+mV</i></button>
+        <button class="rec" data-m="QT">QT<i>ms</i></button>
+        <button class="rec" data-m="T">T<i>ms+mV</i></button>
+      </div>
+    </div>
+    <div class="right">
+      <div class="rhead"><b>ÖLÇÜM TABLOSU</b><span class="mini" id="calinfo"></span></div>
+      <div class="tablewrap"><table id="tbl"></table></div>
+      <div class="rfoot">
+        <button class="copy" id="copy">Excel için kopyala</button>
+        <button class="clear" id="clear">Temizle</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script></script>
+<script>
+"use strict";
+pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+const ap=(m,x,y)=>[m[0]*x+m[2]*y+m[4],m[1]*x+m[3]*y+m[5]];
+const mul=(a,b)=>[a[0]*b[0]+a[2]*b[1],a[1]*b[0]+a[3]*b[1],a[0]*b[2]+a[2]*b[3],a[1]*b[2]+a[3]*b[3],a[0]*b[4]+a[2]*b[5]+a[4],a[1]*b[4]+a[3]*b[5]+a[5]];
+const median=a=>{const s=[...a].sort((x,y)=>x-y),n=s.length;return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):0;};
+const LEADSET=["I","II","III","aVR","aVL","aVF","V1","V2","V3","V4","V5","V6"];
+const ORDER=["I","II","III","aVR","aVL","aVF","V1","V2","V3","V4","V5","V6"];
+
+/* ---------------- PDF parsing (validated against pdf.js in Node) ---------------- */
+async function parsePDF(buf){
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const page=await pdf.getPage(1);
+  const base=page.getViewport({scale:1}).transform;
+  const ops=await page.getOperatorList(), OPS=pdfjsLib.OPS;
+  let ctm=base.slice(); const stack=[], traces=[];
+  for(let i=0;i<ops.fnArray.length;i++){
+    const fn=ops.fnArray[i],a=ops.argsArray[i];
+    if(fn===OPS.save)stack.push(ctm.slice());
+    else if(fn===OPS.restore){if(stack.length)ctm=stack.pop();}
+    else if(fn===OPS.transform)ctm=mul(ctm,a);
+    else if(fn===OPS.constructPath){
+      const sub=a[0],co=a[1];let ci=0,pts=[],nl=0;
+      const push=(x,y)=>{const p=ap(ctm,x,y);pts.push(p[0],p[1]);};
+      for(const s of sub){
+        if(s===OPS.moveTo){if(nl>0)traces.push({pts,nl});pts=[];nl=0;push(co[ci],co[ci+1]);ci+=2;}
+        else if(s===OPS.lineTo){push(co[ci],co[ci+1]);ci+=2;nl++;}
+        else if(s===OPS.curveTo){push(co[ci+4],co[ci+5]);ci+=6;nl++;}
+        else if(s===OPS.curveTo2||s===OPS.curveTo3){push(co[ci+2],co[ci+3]);ci+=4;nl++;}
+        else if(s===OPS.rectangle){ci+=4;}
+      }
+      if(nl>0)traces.push({pts,nl});
+    }
+  }
+  let cand=traces.filter(t=>t.nl>40).map(t=>{
+    const xs=[],ys=[];for(let k=0;k<t.pts.length;k+=2){xs.push(t.pts[k]);ys.push(t.pts[k+1]);}
+    return{xs,ys,x0:Math.min(...xs),x1:Math.max(...xs),y0:Math.min(...ys),y1:Math.max(...ys)};
+  });
+  if(!cand.length)throw new Error("Vektör EKG izi bulunamadı. Bu PDF izleri resim olarak içeriyor olabilir.");
+  cand.sort((a,b)=>Math.max(b.x1-b.x0,b.y1-b.y0)-Math.max(a.x1-a.x0,a.y1-a.y0));
+  const big=cand[0], timeIsX=(big.x1-big.x0)>=(big.y1-big.y0);
+  const ext=t=>timeIsX?(t.x1-t.x0):(t.y1-t.y0), maxExt=ext(big);
+  cand=cand.filter(t=>ext(t)>maxExt*0.12);
+  const tmin=t=>timeIsX?t.x0:t.y0, tmax=t=>timeIsX?t.x1:t.y1;
+  const cmin=t=>timeIsX?t.y0:t.x0, cmax=t=>timeIsX?t.y1:t.x1;
+
+  const tc=await page.getTextContent(), labels=[];
+  for(const it of tc.items){const s=(it.str||"").trim();
+    if(LEADSET.includes(s)){const p=ap(base,it.transform[4],it.transform[5]);labels.push({s,x:p[0],y:p[1],used:false});}}
+
+  // orientation: lead labels sit at the START of each strip; if they sit at the high end, time runs backwards
+  let vHigh=0,vLow=0; const lt=L=>timeIsX?L.x:L.y;
+  for(const t of cand){
+    const cc=(cmin(t)+cmax(t))/2;
+    const near=labels.filter(L=>Math.abs((timeIsX?L.y:L.x)-cc)<30);
+    if(!near.length)continue;
+    const dist=L=>Math.min(Math.abs(lt(L)-tmin(t)),Math.abs(lt(L)-tmax(t)));
+    const L=near.reduce((b,c)=>dist(c)<dist(b)?c:b);
+    if(Math.abs(lt(L)-tmax(t))<Math.abs(lt(L)-tmin(t)))vHigh++;else vLow++;
+  }
+  const REV=vHigh>vLow;
+
+  const full=tc.items.map(i=>i.str).join(" ");
+  let speed=25,gain=10,m;
+  if(m=full.match(/(\d+(?:\.\d+)?)\s*mm\/s/i))speed=parseFloat(m[1]);
+  if(m=full.match(/(\d+(?:\.\d+)?)\s*mm\/mv/i))gain=parseFloat(m[1]);
+  const pxPerMm=maxExt/(10*speed), pxPerMv=pxPerMm*gain;
+
+  const meta={speed,gain,measures:{}};
+  if(m=full.match(/ID:?\s*(\d{4,})/))meta.id=m[1];
+  // GE MUSE PDFs emit these either label-first or value-first; support both.
+  if(m=full.match(/rate\s*(\d+)\s*BPM/i))meta.measures.HR=+m[1];
+  else if(m=full.match(/BPM\s+(\d+)\s+Vent/i))meta.measures.HR=+m[1];
+  if(m=full.match(/PR interval\s*(\d+)/i))meta.measures.PR=+m[1];
+  else if(m=full.match(/ms\s+(\d+)\s+PR interval/i))meta.measures.PR=+m[1];
+  if(m=full.match(/QRS duration\s*(\d+)/i))meta.measures.QRS=+m[1];
+  else if(m=full.match(/ms\s+(\d+)\s+QRS duration/i))meta.measures.QRS=+m[1];
+  if(m=full.match(/QT\/QTc\s*(\d+)\/(\d+)/i)){meta.measures.QT=+m[1];meta.measures.QTc=+m[2];}
+  if(m=full.match(/P-?R-?T\s*axes\s*(-?\d+)\s+(-?\d+)\s+(-?\d+)/i)){meta.measures.Paxis=+m[1];meta.measures.QRSaxis=+m[2];meta.measures.Taxis=+m[3];}
+  else if(m=full.match(/(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+P-?R-?T\s*axes/i)){meta.measures.Taxis=+m[1];meta.measures.QRSaxis=+m[2];meta.measures.Paxis=+m[3];}
+  if(m=full.match(/([A-ZÇĞİÖŞÜ]{2,}[A-Za-zÇĞİÖŞÜçğıöşü]*,\s*[A-Za-zÇĞİÖŞÜçğıöşü]+)/))meta.patient=m[1];
+
+  const toLead=t=>{
+    const n=t.xs.length,T=[],V=[];
+    for(let k=0;k<n;k++){
+      const raw=timeIsX?t.xs[k]:t.ys[k];
+      T.push(((REV?(tmax(t)-raw):(raw-tmin(t)))/pxPerMm/speed)*1000);
+      V.push(timeIsX?t.ys[k]:t.xs[k]);
+    }
+    const b=median(V), Vm=V.map(v=>-(v-b)/pxPerMv);
+    const idx=T.map((_,i)=>i).sort((a,b2)=>T[a]-T[b2]);
+    const Ts=idx.map(i=>T[i]),Vs=idx.map(i=>Vm[i]);
+    const dur=Ts[Ts.length-1],fs=500,N=Math.max(2,Math.round(dur/1000*fs)+1);
+    const uV=new Array(N);let j=0;
+    for(let s=0;s<N;s++){
+      const tt=dur*s/(N-1);
+      while(j<Ts.length-2&&Ts[j+1]<tt)j++;
+      const t0=Ts[j],t1=Ts[j+1]??t0+1,v0=Vs[j],v1=Vs[j+1]??Vs[j];
+      const f=t1>t0?(tt-t0)/(t1-t0):0;
+      uV[s]=Math.round((v0+(v1-v0)*f)*1000);
+    }
+    return{dur_ms:Math.round(dur*10)/10,fs,uV};
+  };
+  const longs=cand.filter(t=>ext(t)>maxExt*0.6), shorts=cand.filter(t=>ext(t)<=maxExt*0.6);
+  const leads={};
+  const pick=t=>{const cx=(t.x0+t.x1)/2,cy=(t.y0+t.y1)/2;let best=null,bd=1e18;
+    for(const L of labels){if(L.used)continue;const d=Math.hypot(L.x-cx,L.y-cy);if(d<bd){bd=d;best=L;}}return best;};
+  shorts.sort((a,b)=>(cmin(a)-cmin(b))||(tmin(a)-tmin(b)));
+  for(const t of shorts){const L=pick(t);if(!L)continue;L.used=true;leads[L.s]=toLead(t);}
+  longs.sort((a,b)=>cmin(a)-cmin(b));
+  for(const t of longs){let L=pick(t);let nm=L?L.s:"Ritim";if(leads[nm])nm+=" (ritim)";if(L)L.used=true;leads[nm]=toLead(t);}
+  const out={};
+  for(const k of ORDER)if(leads[k])out[k]=leads[k];
+  for(const k of Object.keys(leads))if(!out[k])out[k]=leads[k];
+  return{meta,leads:out};
+}
+
+/* ---------------- signal analysis (validated: PR 176 / QT 450 / HR 68 vs MUSE 176/460/68) ---------------- */
+function smooth(x,w){
+  if(w<2)return x.slice();
+  const n=x.length,o=new Array(n),h=w>>1;
+  for(let i=0;i<n;i++){let s=0,c=0;const a=Math.max(0,i-h),b=Math.min(n,i+h+1);
+    for(let j=a;j<b;j++){s+=x[j];c++;}o[i]=s/c;}
+  return o;
+}
+function detectR(x,fs){
+  const n=x.length;if(n<20)return[];
+  const d=new Array(n).fill(0);
+  for(let i=2;i<n-2;i++)d[i]=2*x[i+1]+x[i+2]-x[i-2]-2*x[i-1];
+  const w=Math.max(2,Math.round(.08*fs)),integ=new Array(n).fill(0);
+  let acc=0;
+  for(let i=0;i<n;i++){acc+=d[i]*d[i];if(i>=w)acc-=d[i-w]*d[i-w];integ[i]=acc/w;}
+  let mx=0;for(const v of integ)if(v>mx)mx=v;
+  const th=mx*.28,mind=Math.round(.25*fs),pk=[];
+  let i=0;
+  while(i<n){
+    if(integ[i]>th){
+      let j=i;while(j<n&&integ[j]>th)j++;
+      const a=Math.max(0,i-Math.round(.05*fs)),b=Math.min(n,j+Math.round(.05*fs));
+      let rp=a;for(let k=a;k<b;k++)if(Math.abs(x[k])>Math.abs(x[rp]))rp=k;
+      if(!pk.length||rp-pk[pk.length-1]>mind)pk.push(rp);
+      i=j+mind;
+    }else i++;
+  }
+  return pk;
+}
+function delineate(mb,fs,R,rr){
+  const n=mb.length;
+  // isoelectric baseline + noise from the TP segment (scaled to RR)
+  const ba=Math.max(0,R-Math.round(.42*rr)), bb=Math.max(ba+3,R-Math.round(.26*rr));
+  const base=median(mb.slice(ba,bb));
+  const dif=[];for(let i=ba;i<Math.max(ba+2,bb-1);i++)dif.push(Math.abs(mb[i+1]-mb[i]));
+  const noise=Math.max(median(dif),0.5);
+  // QRS bounds: walk out until the slope stays quiet for `hold` samples
+  const sm=smooth(mb,3), sl=new Array(n-1);
+  for(let i=0;i<n-1;i++)sl[i]=Math.abs(sm[i+1]-sm[i]);
+  const w=Math.round(.08*fs);
+  let mxs=0;for(let i=Math.max(1,R-w);i<Math.min(sl.length,R+w);i++)mxs=Math.max(mxs,sl[i]);
+  const th=Math.max(noise*2.0,mxs*0.05), hold=Math.max(3,Math.round(.016*fs));
+  let q=0,i2=R-1;const lim=Math.max(1,R-Math.round(.10*fs));
+  while(i2>lim){q=sl[i2]<th?q+1:0;if(q>=hold)break;i2--;}
+  const on=Math.min(R-1,i2+q);
+  q=0;i2=R+1;const lim2=Math.min(sl.length-1,R+Math.round(.14*fs));
+  while(i2<lim2){q=sl[i2]<th?q+1:0;if(q>=hold)break;i2++;}
+  const off=Math.max(R+1,i2-q+1);
+  // T wave (tangent method for the end)
+  const sm2=smooth(mb,Math.max(2,Math.round(.020*fs)));
+  const ta=Math.min(n-2,off+Math.round(.04*fs)), tb=Math.min(n-1,Math.max(ta+4,off+Math.round(.50*fs)));
+  let tap=ta;for(let i=ta;i<tb;i++)if(Math.abs(sm2[i]-base)>Math.abs(sm2[tap]-base))tap=i;
+  const tamp=sm2[tap]-base, dr=Math.sign(tamp)||1;
+  let ton=tap;while(ton>ta&&(sm2[ton]-base)*dr>Math.abs(tamp)*0.10)ton--;
+  let best=tap,bs=0;
+  for(let i=tap+1;i<Math.min(tb,n-2);i++){const s=(sm2[i+1]-sm2[i-1])/2;if(s*dr<bs*dr){bs=s;best=i;}}
+  let tend;
+  if(bs!==0){tend=Math.round(best+1.12*(base-sm2[best])/bs);tend=Math.max(tap+1,Math.min(tb,tend));}
+  else{tend=tap;while(tend<tb&&(sm2[tend]-base)*dr>Math.abs(tamp)*.10)tend++;}
+  // P wave, searched between the previous T and QRS onset
+  const pa=Math.max(0,on-Math.round(Math.min(.30*fs,.34*rr))), pb=Math.max(pa+3,on-Math.round(.012*fs));
+  const smp=smooth(mb,Math.max(2,Math.round(.024*fs)));
+  let pap=pa;for(let i=pa;i<pb;i++)if(Math.abs(smp[i]-base)>Math.abs(smp[pap]-base))pap=i;
+  const pamp=smp[pap]-base;
+  let P=null;
+  if(Math.abs(pamp)>=Math.max(15,noise*4)){
+    const pdr=Math.sign(pamp)||1, pth=Math.abs(pamp)*0.08;
+    let pon=pap;const pl=Math.max(pa,pap-Math.round(.10*fs));
+    while(pon>pl&&(smp[pon]-base)*pdr>pth)pon--;
+    let poff=pap;const pl2=Math.min(on,pap+Math.round(.10*fs));
+    while(poff<pl2&&(smp[poff]-base)*pdr>pth)poff++;
+    P={on:pon,apex:pap,off:poff,amp:pamp};
+  }
+  return{base,noise,on,off,R,ton,tap,tend,tamp,P,J:off,stIdx:Math.min(n-1,off+Math.round(.06*fs))};
+}
+function analyse(L){
+  const x=L.uV,fs=L.fs,pk=detectR(x,fs);
+  if(!pk.length)return null;
+  let rr=Math.round(.8*fs);
+  if(pk.length>1){const d=[];for(let i=1;i<pk.length;i++)d.push(pk[i]-pk[i-1]);rr=median(d);}
+  const pre=Math.round(Math.min(.45*fs,.55*rr)), post=Math.round(Math.min(.60*fs,.75*rr));
+  const refs=pk.filter(p=>p-pre>=0&&p+post<=x.length);
+  if(!refs.length)return{pk,rr,fs,refs:[],ref:pk[Math.floor(pk.length/2)],pre,del:null};
+  const Lw=pre+post,mb=new Array(Lw);
+  for(let k=0;k<Lw;k++)mb[k]=median(refs.map(p=>x[p-pre+k]));
+  return{pk,rr,fs,refs,ref:refs[Math.floor(refs.length/2)],pre,mb,del:delineate(mb,fs,pre,rr)};
+}
+
+
+
+/* per-beat delineation, anchored to the median template (+/-30 ms) so single-beat
+   noise cannot produce wild values while real beat-to-beat variation is kept */
+function perBeat(L,A,r){
+  const x=L.uV,f=L.fs;
+  const pre=Math.round(Math.min(.45*f,.55*A.rr)), post=Math.round(Math.min(.60*f,.75*A.rr));
+  if(!A.del||r-pre<0||r+post>x.length)return A.del?{del:A.del,pre:A.pre,tpl:true}:null;
+  const d=delineate(x.slice(r-pre,r+post),f,pre,A.rr), T=A.del;
+  const tol=Math.round(.030*f), cl=(v,t)=>Math.abs(v-t)<=tol?v:t;
+  d.on=cl(d.on,T.on); d.off=cl(d.off,T.off); d.J=d.off;
+  d.ton=cl(d.ton,T.ton); d.tend=cl(d.tend,T.tend); d.tap=cl(d.tap,T.tap);
+  if(d.P&&T.P){d.P.on=cl(d.P.on,T.P.on);d.P.off=cl(d.P.off,T.P.off);d.P.apex=cl(d.P.apex,T.P.apex);}
+  else if(!d.P&&T.P)d.P=Object.assign({},T.P);
+  d.stIdx=Math.min(pre+post-1,d.off+Math.round(.06*f));
+  return{del:d,pre,tpl:false};
+}
+let BEAT=0;
+const beatRefsFor=n=>{const A=ANA[n];return(A&&A.refs&&A.refs.length)?A.refs:[];};
+const beatRefs=()=>beatRefsFor(CUR);
+function curRef(){const r=beatRefs();return r.length?r[Math.min(BEAT,r.length-1)]:(ANA[CUR]?ANA[CUR].ref:0);}
+function updateBeatUI(){
+  const r=beatRefs(),el=$("beatlbl");
+  if(el)el.textContent=r.length?`${Math.min(BEAT,r.length-1)+1}/${r.length}`:"—";
+}
+function scrollToBeat(){
+  const r=beatRefs();if(!r.length||!geom)return;
+  const L=lead(),x=xOfMs(curRef()/L.fs*1000),sc=$("scroller");
+  sc.scrollLeft=Math.max(0,x-sc.clientWidth/2);
+}
+function stepBeat(n){
+  const r=beatRefs();if(!r.length)return;
+  BEAT=Math.max(0,Math.min(r.length-1,BEAT+n));
+  updateBeatUI();
+  if(activeM)autoSeed(activeM); else {draw();}
+  scrollToBeat();
+}
+
+/* ---------------- frontal-plane axis (validated vs MUSE: mean 4.4 deg/axis) ---------------- */
+const LIMB=["I","II","III"], ANG={I:0,II:60,III:120};
+function normAng(a){while(a>180)a-=360;while(a<=-180)a+=360;return a;}
+function computeAxes(leads){
+  const An={};
+  for(const L of LIMB){if(leads[L]){const A=ANA[L]||analyse(leads[L]);if(A&&A.del)An[L]=A;}}
+  const names=Object.keys(An);
+  if(names.length<2)return{error:"Aks hesabı için en az iki ekstremite derivasyonu (I, II, III) gerekli."};
+  const med=f=>Math.round(median(names.map(L=>f(An[L]))));
+  const onR=med(A=>A.del.on-A.pre), offR=med(A=>A.del.off-A.pre);
+  const tonR=med(A=>A.del.ton-A.pre), tendR=med(A=>A.del.tend-A.pre);
+  const pOn=names.filter(L=>An[L].del.P).map(L=>An[L].del.P.on-An[L].pre);
+  const pOff=names.filter(L=>An[L].del.P).map(L=>An[L].del.P.off-An[L].pre);
+  const hasP=pOn.length>0;
+  const ponR=hasP?Math.round(median(pOn)):onR-40, poffR=hasP?Math.round(median(pOff)):onR-5;
+  const V={P:{},QRS:{},T:{}};
+  for(const L of names){
+    const A=An[L],mb=A.mb,base=A.del.base,pre=A.pre;
+    const seg=(i0,i1)=>{i0=Math.max(0,i0);i1=Math.min(mb.length,i1);const o=[];for(let i=i0;i<i1;i++)o.push(mb[i]-base);return o.length?o:[0];};
+    const netpeak=s=>Math.max(...s)+Math.min(...s), area=s=>s.reduce((a,b)=>a+b,0);
+    V.QRS[L]=netpeak(seg(pre+onR,pre+offR));
+    V.T[L]=netpeak(seg(pre+tonR,pre+tendR));
+    V.P[L]=area(seg(pre+ponR,pre+poffR));
+  }
+  const solve=v=>{
+    let a=0,b=0,c=0,d=0,e=0,f=0;
+    for(const L of names){
+      const th=ANG[L]*Math.PI/180,cs=Math.cos(th),sn=Math.sin(th),m=v[L];
+      a+=cs*cs;b+=cs*sn;c+=cs*sn;d+=sn*sn;e+=cs*m;f+=sn*m;
+    }
+    const det=a*d-b*c;
+    if(Math.abs(det)<1e-12)return{deg:null,mag:0};
+    const x=(e*d-b*f)/det,y=(a*f-e*c)/det;
+    return{deg:normAng(Math.atan2(y,x)*180/Math.PI),mag:Math.hypot(x,y)};
+  };
+  return{P:solve(V.P),QRS:solve(V.QRS),T:solve(V.T),hasP,leadsUsed:names};
+}
+function classifyQRS(d){
+  if(d==null)return["—",""];
+  if(d>=-30&&d<=90)return["Normal aks (-30° … +90°)","ok"];
+  if(d>-90&&d<-30)return["Sol aks sapması","warn"];
+  if(d>90&&d<=180)return["Sağ aks sapması","warn"];
+  return["Aşırı aks sapması (kuzeybatı)","warn"];
+}
+let AXES=null;
+function hexaxial(ax){
+  const S=190,c=S/2,r=S/2-26;
+  const pt=(deg,rad)=>[c+rad*Math.cos(deg*Math.PI/180),c+rad*Math.sin(deg*Math.PI/180)];
+  let s=`<svg viewBox="0 0 ${S} ${S}" width="100%" height="${S}" style="display:block;margin:4px 0 2px">`;
+  // normal sector -30..+90
+  const a0=pt(-30,r),a1=pt(90,r);
+  s+=`<path d="M ${c} ${c} L ${a0[0].toFixed(1)} ${a0[1].toFixed(1)} A ${r} ${r} 0 0 1 ${a1[0].toFixed(1)} ${a1[1].toFixed(1)} Z" fill="#37b24d" opacity=".10"/>`;
+  const AX=[[0,"I"],[60,"II"],[120,"III"],[-150,"aVR"],[-30,"aVL"],[90,"aVF"]];
+  for(const [d,n] of AX){
+    const p1=pt(d,r),p2=pt(d+180,r),lp=pt(d,r+13);
+    s+=`<line x1="${p2[0].toFixed(1)}" y1="${p2[1].toFixed(1)}" x2="${p1[0].toFixed(1)}" y2="${p1[1].toFixed(1)}" stroke="#2b3542" stroke-width="1"/>`;
+    s+=`<text x="${lp[0].toFixed(1)}" y="${(lp[1]+3.5).toFixed(1)}" fill="#6b7886" font-size="9" font-family="ui-monospace,monospace" text-anchor="middle">${n}</text>`;
+  }
+  s+=`<circle cx="${c}" cy="${c}" r="2.5" fill="#8a97a5"/>`;
+  const vec=(deg,col,w,frac)=>{
+    if(deg==null)return"";
+    const L=r*frac,p=pt(deg,L),h=8;
+    const bx=pt(deg,L-h),n1=[bx[0]-(p[1]-bx[1])*.45,bx[1]+(p[0]-bx[0])*.45],n2=[bx[0]+(p[1]-bx[1])*.45,bx[1]-(p[0]-bx[0])*.45];
+    return `<line x1="${c}" y1="${c}" x2="${bx[0].toFixed(1)}" y2="${bx[1].toFixed(1)}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`+
+           `<polygon points="${p[0].toFixed(1)},${p[1].toFixed(1)} ${n1[0].toFixed(1)},${n1[1].toFixed(1)} ${n2[0].toFixed(1)},${n2[1].toFixed(1)}" fill="${col}"/>`;
+  };
+  s+=vec(ax.P.deg,"#9b8cff",1.8,.52);
+  s+=vec(ax.T.deg,"#f6a41f",2.2,.72);
+  s+=vec(ax.QRS.deg,"#08a6c9",3.2,.95);
+  s+=`</svg>`;
+  return s;
+}
+function showAxes(){
+  if(!DATA)return;
+  const ax=computeAxes(DATA.leads);
+  const w=$("axiswrap");
+  if(ax.error){w.innerHTML=`<div class="axispanel"><h4>FRONTAL AKS<span class="x" onclick="hideAxes()">✕</span></h4><div class="axnote">${ax.error}</div></div>`;$("axisbtn").classList.add("on");return;}
+  AXES=ax;
+  const M=(DATA.meta&&DATA.meta.measures)||{};
+  const ref=(k)=>M[k]!=null?`<span class="ref">MUSE ${M[k]}°</span>`:"";
+  const [cls,kind]=classifyQRS(ax.QRS.deg);
+  const qt=(ax.QRS.deg!=null&&ax.T.deg!=null)?Math.abs(normAng(ax.QRS.deg-ax.T.deg)):null;
+  const fmt=d=>d==null?"—":(d>0?"+":"")+d.toFixed(0)+"°";
+  w.innerHTML=`<div class="axispanel">
+    <h4>FRONTAL AKS<span class="x" onclick="hideAxes()">✕</span></h4>
+    <div class="axrow"><span class="lab" style="color:#9b8cff">P aksı</span><span><span class="val" style="color:#9b8cff">${fmt(ax.P.deg)}</span>${ref("Paxis")}</span></div>
+    <div class="axrow"><span class="lab" style="color:var(--timec)">QRS aksı</span><span><span class="val" style="color:var(--timec)">${fmt(ax.QRS.deg)}</span>${ref("QRSaxis")}</span></div>
+    <div class="axrow"><span class="lab" style="color:var(--voltc)">T aksı</span><span><span class="val" style="color:var(--voltc)">${fmt(ax.T.deg)}</span>${ref("Taxis")}</span></div>
+    <div class="axrow"><span class="lab">QRS–T açısı</span><span class="val" style="font-size:14px">${qt==null?"—":qt.toFixed(0)+"°"}</span></div>
+    <div class="axcls ${kind}">${cls}</div>
+    ${hexaxial(ax)}
+    <div class="axnote">Lead ${ax.leadsUsed.join(", ")} üzerinden, medyan atımın net defleksiyonundan hesaplandı (P için net alan). Ekstremite derivasyonları eşzamanlı kaydedildiği için frontal düzlem geçerlidir.${ax.hasP?"":" P dalgası saptanamadı — P aksı güvenilir değil."}</div>
+    <button class="axadd" onclick="toast('Aks değerleri kopyalama çıktısına eklendi')">Aks değerleri Excel çıktısına dahil</button>
+  </div>`;
+  $("axisbtn").classList.add("on");
+}
+function hideAxes(){$("axiswrap").innerHTML="";$("axisbtn").classList.remove("on");}
+window.hideAxes=hideAxes;
+
+/* ---------------- measure definitions ---------------- */
+const MEAS={
+  HR :{t:1,v:0,tcol:"HR",unit:"bpm"},
+  P  :{t:1,v:1,tcol:"P ms",vcol:"P mV"},
+  PR :{t:1,v:0,tcol:"PR ms"},
+  QRS:{t:1,v:1,tcol:"QRS ms",vcol:"QRS mV"},
+  ST :{t:1,v:1,tcol:"ST ms",vcol:"ST mV"},
+  QT :{t:1,v:0,tcol:"QT ms"},
+  T  :{t:1,v:1,tcol:"T ms",vcol:"T mV"}
+};
+const MORDER=["HR","P","PR","QRS","ST","QT","T"];
+const COLS=[],COLKIND={};
+for(const m of MORDER){const d=MEAS[m];if(d.tcol){COLS.push(d.tcol);COLKIND[d.tcol]="t";}if(d.vcol){COLS.push(d.vcol);COLKIND[d.vcol]="v";}}
+
+/* ---------------- state ---------------- */
+let DATA=null,CUR=null,ZOOM=5,ANA={},RESULTS={},activeM=null,mode="t",geom=null;
+let cal={tA:null,tB:null,vA:null,vB:null};
+const $=id=>document.getElementById(id);
+const canvas=$("ecg"),ctx=canvas.getContext("2d");
+const lead=()=>DATA.leads[CUR];
+
+function loadData(d){
+  DATA=d;RESULTS={};ANA={};
+  for(const k in d.leads){try{ANA[k]=analyse(d.leads[k]);}catch(e){ANA[k]=null;}}
+  CUR=Object.keys(d.leads)[0];$("hint").style.display="none";AXES=null;if($("axiswrap"))$("axiswrap").innerHTML="";
+  buildLeadbar();buildTable();selectLead(CUR);
+  const m=d.meta||{};
+  $("calinfo").textContent=`${m.speed||25}mm/s · ${m.gain||10}mm/mV`;
+}
+function buildLeadbar(){
+  const bar=$("leadbar");bar.innerHTML="";
+  for(const name of Object.keys(DATA.leads)){
+    const b=document.createElement("button");
+    b.className="leadbtn"+(name.includes("ritim")?" rhythm":"");
+    b.textContent=name.replace(" (ritim)"," ⟲");b.dataset.lead=name;
+    b.onclick=()=>selectLead(name);bar.appendChild(b);
+  }
+  const grp=document.createElement("div");grp.className="rightgrp";
+  const mk=(txt,title,fn2,id)=>{const b2=document.createElement("button");b2.className="leadbtn navbtn";
+    b2.textContent=txt;b2.title=title;b2.onclick=fn2;if(id)b2.id=id;return b2;};
+  grp.appendChild(mk("◀","Önceki atım",()=>stepBeat(-1)));
+  const lbl=document.createElement("span");lbl.className="beatlbl";lbl.id="beatlbl";lbl.textContent="—";
+  lbl.title="Seçili atım";grp.appendChild(lbl);
+  grp.appendChild(mk("▶","Sonraki atım",()=>stepBeat(1)));
+  bar.appendChild(grp);
+  const ab=document.createElement("button");
+  ab.className="leadbtn axisbtn";ab.id="axisbtn";ab.textContent="AKS ⟟";
+  ab.title="Frontal düzlem P / QRS / T aksını hesapla";
+  ab.onclick=()=>{$("axiswrap").innerHTML?hideAxes():showAxes();};
+  grp.appendChild(ab);
+}
+function markLeadbar(){
+  document.querySelectorAll(".leadbtn").forEach(b=>{
+    b.classList.toggle("on",b.dataset.lead===CUR);
+    const r=RESULTS[b.dataset.lead],has=r&&Object.keys(r).length;
+    let dot=b.querySelector(".dot");
+    if(has&&!dot){dot=document.createElement("span");dot.className="dot";b.appendChild(dot);}
+    if(!has&&dot)dot.remove();
+  });
+}
+function selectLead(n){
+  CUR=n;cal={tA:null,tB:null,vA:null,vB:null};activeM=null;
+  const rr=beatRefsFor(n);BEAT=rr.length?Math.floor(rr.length/2):0;
+  document.querySelectorAll(".rec").forEach(r=>r.classList.remove("on"));
+  markLeadbar();markTableSel();draw();updateReadout();updateBeatUI();
+}
+
+/* ---------------- drawing ---------------- */
+function computeGeom(){
+  const L=lead(),speed=DATA.meta.speed||25,gain=DATA.meta.gain||10,perMm=ZOOM;
+  const host=$("scroller");
+  const w=Math.max(host.clientWidth,(L.dur_ms/1000*speed)*perMm+20);
+  const h=host.clientHeight;
+  canvas.width=Math.round(w);canvas.height=Math.round(h);
+  geom={perMm,pxPerMs:speed*perMm/1000,pxPerMv:gain*perMm,baseY:h/2,w,h,padL:8};
+}
+const xOfMs=ms=>geom.padL+ms*geom.pxPerMs;
+const msOfX=x=>(x-geom.padL)/geom.pxPerMs;
+const yOfMv=mv=>geom.baseY-mv*geom.pxPerMv;
+const mvOfY=y=>(geom.baseY-y)/geom.pxPerMv;
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function drawGrid(){
+  const{w,h,perMm}=geom;
+  ctx.fillStyle=css("--paper");ctx.fillRect(0,0,w,h);
+  ctx.lineWidth=1;ctx.strokeStyle=css("--grid");ctx.beginPath();
+  for(let x=geom.padL%perMm;x<w;x+=perMm){ctx.moveTo((x|0)+.5,0);ctx.lineTo((x|0)+.5,h);}
+  for(let y=geom.baseY%perMm;y<h;y+=perMm){ctx.moveTo(0,(y|0)+.5);ctx.lineTo(w,(y|0)+.5);}
+  ctx.stroke();
+  const M=perMm*5;ctx.strokeStyle=css("--gridbold");ctx.beginPath();
+  for(let x=geom.padL%M;x<w;x+=M){ctx.moveTo((x|0)+.5,0);ctx.lineTo((x|0)+.5,h);}
+  for(let y=geom.baseY%M;y<h;y+=M){ctx.moveTo(0,(y|0)+.5);ctx.lineTo(w,(y|0)+.5);}
+  ctx.stroke();
+}
+function drawTrace(){
+  const L=lead(),uV=L.uV,fs=L.fs;
+  ctx.strokeStyle=css("--trace");ctx.lineWidth=1.4;ctx.lineJoin="round";ctx.beginPath();
+  for(let i=0;i<uV.length;i++){const x=xOfMs(i/fs*1000),y=yOfMv(uV[i]/1000);i?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+  ctx.stroke();
+  ctx.font="600 13px "+css("--mono");ctx.fillStyle="#0e1217";
+  ctx.fillText(CUR.replace(" (ritim)"," ⟲"),geom.padL+6,20);
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function chip(txt,cx,cy,col){
+  ctx.font="600 12px "+css("--mono");const w=ctx.measureText(txt).width+10;
+  ctx.fillStyle="#0e1217e6";roundRect(cx-w/2,cy-9,w,18,4);ctx.fill();
+  ctx.fillStyle=col;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(txt,cx,cy);
+  ctx.textAlign="left";ctx.textBaseline="alphabetic";
+}
+function drawCalipers(){
+  const H=geom.h;
+  for(const k of["tA","tB"]){
+    if(cal[k]==null)continue;const x=xOfMs(cal[k]);
+    ctx.strokeStyle=css("--timec");ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=css("--timec");ctx.fillRect(x-5,0,10,11);
+  }
+  if(cal.tA!=null&&cal.tB!=null){
+    const xa=xOfMs(cal.tA),xb=xOfMs(cal.tB);
+    ctx.fillStyle="rgba(8,166,201,.10)";ctx.fillRect(Math.min(xa,xb),0,Math.abs(xb-xa),H);
+    chip(Math.round(Math.abs(cal.tB-cal.tA))+" ms",(xa+xb)/2,27,css("--timec"));
+  }
+  for(const k of["vA","vB"]){
+    if(cal[k]==null)continue;const y=yOfMv(cal[k]);
+    ctx.strokeStyle=css("--voltc");ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(geom.w,y);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=css("--voltc");ctx.fillRect(0,y-5,11,10);
+  }
+  if(cal.vA!=null&&cal.vB!=null){
+    const ya=yOfMv(cal.vA),yb=yOfMv(cal.vB),dv=cal.vB-cal.vA;
+    ctx.fillStyle="rgba(246,164,31,.10)";ctx.fillRect(0,Math.min(ya,yb),geom.w,Math.abs(yb-ya));
+    chip((dv>=0?"+":"")+dv.toFixed(2)+" mV",72,(ya+yb)/2,css("--voltc"));
+  }
+}
+function drawBeatMark(){
+  const r=beatRefs();if(!r.length)return;
+  const L=lead(),x=xOfMs(curRef()/L.fs*1000),h2=geom.h;
+  ctx.fillStyle="rgba(8,166,201,.9)";
+  ctx.beginPath();ctx.moveTo(x-7,h2);ctx.lineTo(x+7,h2);ctx.lineTo(x,h2-11);ctx.closePath();ctx.fill();
+  ctx.font="600 10px "+css("--mono");ctx.fillStyle="#0e1217";ctx.textAlign="center";
+  ctx.fillText("atım "+(Math.min(BEAT,r.length-1)+1),x,h2-15);ctx.textAlign="left";
+}
+function drawEmptyPaper(){
+  const host=$("scroller");if(!host)return;
+  const w=Math.max(300,host.clientWidth),h2=Math.max(200,host.clientHeight);
+  canvas.width=w;canvas.height=h2;
+  geom={perMm:ZOOM,pxPerMs:0,pxPerMv:0,baseY:h2/2,w,h:h2,padL:8};
+  drawGrid();
+}
+function draw(){if(!DATA){drawEmptyPaper();return;}computeGeom();drawGrid();drawTrace();drawBeatMark();drawCalipers();}
+function updateReadout(){
+  const dt=(cal.tA!=null&&cal.tB!=null)?Math.abs(cal.tB-cal.tA):null;
+  const dv=(cal.vA!=null&&cal.vB!=null)?(cal.vB-cal.vA):null;
+  $("ro-dt").textContent=dt!=null?Math.round(dt)+" ms":"—";
+  $("ro-hr").textContent=dt?Math.round(60000/dt)+" bpm":"—";
+  $("ro-dv").textContent=dv!=null?((dv>=0?"+":"")+dv.toFixed(2)+" mV"):"—";
+}
+
+/* ---------------- auto placement ---------------- */
+function autoSeed(m){
+  const A=ANA[CUR],L=lead();
+  if(!A){toast("Atım saptanamadı — kaliperleri elle yerleştirin");return;}
+  const fs=L.fs,uV=L.uV,ref=curRef(),B=perBeat(L,A,ref);
+  const d=B?B.del:null,pre=B?B.pre:A.pre;
+  const ms=i=>i/fs*1000;
+  const idx=k=>ref+(k-pre);                 // median-beat index -> real beat index
+  const at=k=>{const i=Math.max(0,Math.min(uV.length-1,idx(k)));return uV[i]/1000;};
+  cal={tA:null,tB:null,vA:null,vB:null};
+  if(m==="HR"){
+    let rr=A.rr;const i=A.pk.indexOf(ref);
+    if(i>=0&&i+1<A.pk.length)rr=A.pk[i+1]-A.pk[i];
+    else if(i>0)rr=A.pk[i]-A.pk[i-1];
+    if(rr){cal.tA=ms(ref);cal.tB=ms(ref+rr);}
+    else{toast("Tek atım — HR için RR ölçülemiyor");return;}
+    draw();updateReadout();return;
+  }
+  if(!d){toast("Şablon atım oluşturulamadı — elle işaretleyin");draw();return;}
+  const baseMv=d.base/1000;
+  if(m==="QRS"){cal.tA=ms(idx(d.on));cal.tB=ms(idx(d.off));cal.vA=baseMv;cal.vB=at(d.R);}
+  else if(m==="P"){
+    if(!d.P){toast("P dalgası saptanamadı (çok düşük genlikli) — elle işaretleyin");draw();return;}
+    cal.tA=ms(idx(d.P.on));cal.tB=ms(idx(d.P.off));cal.vA=baseMv;cal.vB=at(d.P.apex);
+  }
+  else if(m==="PR"){
+    if(!d.P){toast("P dalgası saptanamadı — PR'yi elle işaretleyin");draw();return;}
+    cal.tA=ms(idx(d.P.on));cal.tB=ms(idx(d.on));
+  }
+  else if(m==="QT"){cal.tA=ms(idx(d.on));cal.tB=ms(idx(d.tend));}
+  else if(m==="T"){cal.tA=ms(idx(d.ton));cal.tB=ms(idx(d.tend));cal.vA=baseMv;cal.vB=at(d.tap);}
+  else if(m==="ST"){cal.tA=ms(idx(d.J));cal.tB=ms(idx(d.ton));cal.vA=baseMv;cal.vB=at(d.stIdx);}
+  draw();updateReadout();
+}
+
+/* ---------------- pointer ---------------- */
+let drag=null;
+canvas.addEventListener("pointerdown",e=>{
+  if(!DATA)return;
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  const hitT=k=>cal[k]!=null&&Math.abs(x-xOfMs(cal[k]))<7;
+  const hitV=k=>cal[k]!=null&&Math.abs(y-yOfMv(cal[k]))<7;
+  if(hitT("tA"))drag="tA";else if(hitT("tB"))drag="tB";
+  else if(hitV("vA"))drag="vA";else if(hitV("vB"))drag="vB";
+  else{
+    const wantV=(mode==="v")!==e.shiftKey;
+    if(wantV){
+      if(cal.vA==null)drag="vA";else if(cal.vB==null)drag="vB";
+      else drag=Math.abs(y-yOfMv(cal.vA))<Math.abs(y-yOfMv(cal.vB))?"vA":"vB";
+      cal[drag]=mvOfY(y);
+    }else{
+      if(cal.tA==null)drag="tA";else if(cal.tB==null)drag="tB";
+      else drag=Math.abs(x-xOfMs(cal.tA))<Math.abs(x-xOfMs(cal.tB))?"tA":"tB";
+      cal[drag]=Math.max(0,msOfX(x));
+    }
+  }
+  canvas.setPointerCapture(e.pointerId);moveDrag(x,y);
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!DATA)return;
+  const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+  $("ro-cur").textContent=Math.round(Math.max(0,msOfX(x)))+"ms / "+mvOfY(y).toFixed(2)+"mV";
+  if(drag)moveDrag(x,y);
+});
+canvas.addEventListener("pointerup",()=>{drag=null;});
+function moveDrag(x,y){
+  if(!drag)return;
+  if(drag[0]==="t")cal[drag]=Math.max(0,msOfX(x));else cal[drag]=mvOfY(y);
+  draw();updateReadout();
+}
+
+/* ---------------- record ---------------- */
+document.querySelectorAll(".rec").forEach(b=>{
+  b.addEventListener("click",()=>{
+    if(!DATA)return;
+    const m=b.dataset.m;
+    if(activeM!==m){
+      activeM=m;
+      document.querySelectorAll(".rec").forEach(r=>r.classList.toggle("on",r.dataset.m===m));
+      if($("autoseed").checked){try{autoSeed(m);}catch(e){console.warn(e);}}
+    }
+    recordValue(m);
+  });
+});
+function recordValue(m){
+  const D=MEAS[m];let parts=[];
+  RESULTS[CUR]=RESULTS[CUR]||{};
+  if(D.t&&D.tcol){
+    if(cal.tA!=null&&cal.tB!=null){
+      const dt=Math.abs(cal.tB-cal.tA);
+      const val=m==="HR"?Math.round(60000/dt):Math.round(dt);
+      RESULTS[CUR][D.tcol]=val;parts.push(val+(m==="HR"?" bpm":" ms"));
+    }else parts.push("zaman kaliperi yok");
+  }
+  if(D.v&&D.vcol){
+    if(cal.vA!=null&&cal.vB!=null){
+      const dv=Math.round((cal.vB-cal.vA)*100)/100;
+      RESULTS[CUR][D.vcol]=dv;parts.push((dv>=0?"+":"")+dv.toFixed(2)+" mV");
+    }else parts.push("voltaj kaliperi yok");
+  }
+  buildTable();markLeadbar();
+  toast(`${CUR} · ${m} → ${parts.join("  |  ")}`);
+}
+
+/* ---------------- table ---------------- */
+function buildTable(){
+  if(!DATA)return;
+  let h="<thead><tr><th>Lead</th>"+COLS.map(c=>`<th class="${COLKIND[c]==="v"?"vh":"th"}">${c}</th>`).join("")+"</tr></thead><tbody>";
+  for(const n of Object.keys(DATA.leads)){
+    const r=RESULTS[n]||{};
+    h+=`<tr data-lead="${n}" class="${n.includes("ritim")?"rhythm":""} ${n===CUR?"sel":""}"><th>${n.replace(" (ritim)"," ⟲")}</th>`;
+    for(const c of COLS){
+      const v=r[c];
+      h+=`<td class="${v!=null?("has"+(COLKIND[c]==="v"?" v":"")):""}" data-lead="${n}" data-col="${c}">${v!=null?(COLKIND[c]==="v"&&v>=0?"+":"")+v:""}</td>`;
+    }
+    h+="</tr>";
+  }
+  $("tbl").innerHTML=h+"</tbody>";
+  $("tbl").querySelectorAll("tbody th,tbody td").forEach(el=>{
+    el.style.cursor="pointer";
+    el.onclick=()=>{const n=el.closest("tr").dataset.lead;if(n!==CUR)selectLead(n);};
+    el.ondblclick=()=>{const n=el.dataset.lead,c=el.dataset.col;if(c&&RESULTS[n]){delete RESULTS[n][c];buildTable();markLeadbar();}};
+  });
+}
+function markTableSel(){document.querySelectorAll("#tbl tbody tr").forEach(t=>t.classList.toggle("sel",t.dataset.lead===CUR));}
+
+/* ---------------- copy ---------------- */
+$("copy").addEventListener("click",()=>{
+  if(!DATA)return;
+  const rows=[["Lead",...COLS].join("\t")];
+  for(const n of Object.keys(DATA.leads)){
+    const r=RESULTS[n]||{};
+    rows.push([n,...COLS.map(c=>r[c]!=null?String(r[c]).replace(".",","):"")].join("\t"));
+  }
+  if(AXES&&!AXES.error){
+    const f=d=>d==null?"":Math.round(d);
+    rows.push("");rows.push("Frontal aks (°)");
+    rows.push("P aksı\t"+f(AXES.P.deg));
+    rows.push("QRS aksı\t"+f(AXES.QRS.deg));
+    rows.push("T aksı\t"+f(AXES.T.deg));
+    if(AXES.QRS.deg!=null&&AXES.T.deg!=null)rows.push("QRS-T açısı\t"+Math.abs(normAng(AXES.QRS.deg-AXES.T.deg)).toFixed(0));
+  }
+  const tsv=rows.join("\n");
+  const ok=()=>{const b=$("copy");b.textContent="✓ Kopyalandı — Excel'e yapıştırın";b.classList.add("done");
+    setTimeout(()=>{b.textContent="Excel için kopyala";b.classList.remove("done");},1800);};
+  navigator.clipboard.writeText(tsv).then(ok).catch(()=>{
+    const ta=document.createElement("textarea");ta.value=tsv;document.body.appendChild(ta);ta.select();
+    try{document.execCommand("copy");ok();}catch(e){toast("Kopyalanamadı");}ta.remove();
+  });
+});
+$("clear").addEventListener("click",()=>{if(DATA&&confirm("Tüm ölçümleri temizle?")){RESULTS={};buildTable();markLeadbar();}});
+
+/* ---------------- misc ---------------- */
+function setMode(m,notify=true){
+  mode=m;
+  document.querySelectorAll("#segmode button").forEach(b=>{
+    const on=b.dataset.mode===m;b.classList.toggle("on",on);b.classList.toggle("v",on&&m==="v");
+  });
+}
+document.querySelectorAll("#segmode button").forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$("zoom").addEventListener("input",e=>{ZOOM=parseFloat(e.target.value);draw();});
+requestAnimationFrame(()=>draw());
+window.addEventListener("resize",()=>draw());
+$("file").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;
+  toast("PDF çözümleniyor…");
+  try{
+    const d=await parsePDF(new Uint8Array(await f.arrayBuffer()));
+    if(!Object.keys(d.leads).length)throw new Error("Lead bulunamadı");
+    loadData(d);toast(Object.keys(d.leads).length+" lead yüklendi");
+  }catch(err){console.error(err);alert("PDF okunamadı:\n"+err.message);}
+  e.target.value="";
+});
+$("upng").addEventListener("click",()=>toast("PNG'den EKG okuma henüz hazır değil"));
+$("ujpg").addEventListener("click",()=>toast("JPEG'den EKG okuma henüz hazır değil"));
+let tmr;function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(tmr);tmr=setTimeout(()=>t.classList.remove("show"),2600);}
+
+</script>
+</body>
+</html>
